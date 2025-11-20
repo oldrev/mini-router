@@ -102,7 +102,7 @@ public static class CollisionDetector
         // Check intersection with any polygon edge (inflated logic is complex, 
         // so we approximate by checking distance to edges)
         // If the segment is "too close" to any edge, it's a collision.
-        
+
         for (int i = 0; i < vertices.Count; i++)
         {
             var p1 = vertices[i];

@@ -11,7 +11,7 @@ public readonly struct Segment
 
     public Segment(Point a, Point b)
     {
-        A = a; 
+        A = a;
         B = b;
     }
 

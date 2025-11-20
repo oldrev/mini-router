@@ -76,8 +76,8 @@ public class Router
                 // Also check if start is ON the segment (T-junction start)
                 if (CollisionDetector.DistancePointSegment(start, s.A, s.B) < 1.0) // Tolerance
                 {
-                     connectedTraces.Add(t);
-                     break;
+                    connectedTraces.Add(t);
+                    break;
                 }
             }
         }
@@ -125,14 +125,14 @@ public class Router
                 if (Collides(seg, currentWidth, connectedTraces)) continue;
 
                 double dist = Distance(current, neighbor);
-                
+
                 // Calculate turn penalty
                 double penalty = 0;
                 if (cameFrom.TryGetValue(current, out var prev))
                 {
                     var prevDir = new Point(current.X - prev.X, current.Y - prev.Y);
                     var newDir = new Point(neighbor.X - current.X, neighbor.Y - current.Y);
-                    
+
                     // Cross product to check for direction change
                     double cross = prevDir.X * newDir.Y - prevDir.Y * newDir.X;
                     if (Math.Abs(cross) > 1e-9)
@@ -176,7 +176,7 @@ public class Router
         yield return new Point(p.X - step, p.Y);
         yield return new Point(p.X, p.Y + step);
         yield return new Point(p.X, p.Y - step);
-        
+
         yield return new Point(p.X + step, p.Y + step);
         yield return new Point(p.X + step, p.Y - step);
         yield return new Point(p.X - step, p.Y + step);

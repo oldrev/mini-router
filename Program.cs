@@ -1,8 +1,6 @@
 ﻿using System;
 using Avalonia;
 
-using Avalonia;
-
 namespace MinimalRouter;
 
 class Program

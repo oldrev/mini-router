@@ -34,7 +34,7 @@ public partial class MainWindow : Window
 
         // Define Board Boundary
         _boardBoundary = new Rect(50, 50, 700, 500);
-        
+
         // Draw Boundary
         var boundaryRect = new Rectangle
         {
@@ -50,14 +50,14 @@ public partial class MainWindow : Window
         CanvasArea.Children.Add(boundaryRect);
 
         // Setup Sliders
-        WidthSlider.PropertyChanged += (s, e) => 
+        WidthSlider.PropertyChanged += (s, e) =>
         {
             if (e.Property == Slider.ValueProperty)
             {
                 WidthDisplay.Text = WidthSlider.Value.ToString("0");
             }
         };
-        
+
         ClearanceSlider.PropertyChanged += (s, e) =>
         {
             if (e.Property == Slider.ValueProperty)
@@ -69,7 +69,7 @@ public partial class MainWindow : Window
 
         // Generate Obstacles
         GenerateObstacles();
-        
+
         /*
 
         // // ��������ϰ����������
@@ -205,7 +205,7 @@ public partial class MainWindow : Window
             {
                 // Generate random polygon
                 vertices = GenerateRandomPolygon(_rand, gridSize, _boardBoundary);
-                
+
                 // Compute bounds for intersection check
                 double minX = double.MaxValue, minY = double.MaxValue;
                 double maxX = double.MinValue, maxY = double.MinValue;
@@ -435,7 +435,7 @@ public partial class MainWindow : Window
             for (int i = 1; i < _currentRoutePoints.Count; i++)
             {
                 ctx.LineTo(_currentRoutePoints[i]);
-                trace.AddSegment(_currentRoutePoints[i-1], _currentRoutePoints[i]);
+                trace.AddSegment(_currentRoutePoints[i - 1], _currentRoutePoints[i]);
             }
             ctx.EndFigure(false);
         }
@@ -466,17 +466,17 @@ public partial class MainWindow : Window
                 StrokeLineCap = PenLineCap.Round,
                 StrokeJoin = PenLineJoin.Round
             };
-            
+
             // Fill (70% transparent -> 30% Alpha)
             var fillPath = new Path
             {
                 Data = geometry,
-                Stroke = new SolidColorBrush(Color.Parse("#4D0000FF")), 
+                Stroke = new SolidColorBrush(Color.Parse("#4D0000FF")),
                 StrokeThickness = width - 2, // 1pt border on each side
                 StrokeLineCap = PenLineCap.Round,
                 StrokeJoin = PenLineJoin.Round
             };
-            
+
             CanvasArea.Children.Add(borderPath);
             CanvasArea.Children.Add(fillPath);
             _staticVisuals.Add(borderPath);
@@ -563,21 +563,21 @@ public partial class MainWindow : Window
         // Traces
         foreach (var trace in _router.Traces)
         {
-             var path = new Path64();
-             if (trace.Segments.Count > 0)
-             {
-                 path.Add(ToPoint64(trace.Segments[0].A));
-                 foreach(var seg in trace.Segments)
-                 {
-                     path.Add(ToPoint64(seg.B));
-                 }
-             }
-             
-             // Inflate
-             // Delta = (Width/2 + Clearance)
-             double delta = (trace.Width / 2.0 + clearance) * Scale;
-             var inflated = Clipper.InflatePaths(new Paths64 { path }, delta, JoinType.Round, EndType.Round);
-             clip.AddRange(inflated);
+            var path = new Path64();
+            if (trace.Segments.Count > 0)
+            {
+                path.Add(ToPoint64(trace.Segments[0].A));
+                foreach (var seg in trace.Segments)
+                {
+                    path.Add(ToPoint64(seg.B));
+                }
+            }
+
+            // Inflate
+            // Delta = (Width/2 + Clearance)
+            double delta = (trace.Width / 2.0 + clearance) * Scale;
+            var inflated = Clipper.InflatePaths(new Paths64 { path }, delta, JoinType.Round, EndType.Round);
+            clip.AddRange(inflated);
         }
 
         // 3. Execute Difference using PolyTree
@@ -595,10 +595,10 @@ public partial class MainWindow : Window
     {
         // If pp is an outer polygon (not a hole, and not the root), render it
         // The root is technically a "hole" (container)
-        
+
         bool isRoot = pp is PolyTree64;
-        bool isHole = pp.IsHole; 
-        
+        bool isHole = pp.IsHole;
+
         if (!isRoot && !isHole && pp.Polygon != null)
         {
             // It is an island. Create a Path for it.
@@ -649,13 +649,13 @@ public partial class MainWindow : Window
 
         var polyLine = new PolyLineSegment();
         polyLine.Points ??= new Avalonia.Collections.AvaloniaList<Point>();
-        
+
         for (int i = 1; i < path.Count; i++)
         {
             polyLine.Points.Add(ToPointD(path[i]));
         }
         figure.Segments.Add(polyLine);
-        
+
         if (geometry.Figures == null) geometry.Figures = new PathFigures();
         geometry.Figures.Add(figure);
     }
@@ -686,7 +686,7 @@ public partial class MainWindow : Window
     private List<Point> GenerateRandomPolygon(Random rand, double gridSize, Rect boundary)
     {
         int numVertices = rand.Next(3, 8); // 3 to 7 vertices
-        
+
         // Pick a center point within boundary (roughly)
         double cx = rand.Next((int)(boundary.X / gridSize) + 2, (int)(boundary.Right / gridSize) - 2) * gridSize;
         double cy = rand.Next((int)(boundary.Y / gridSize) + 2, (int)(boundary.Bottom / gridSize) - 2) * gridSize;
@@ -706,11 +706,11 @@ public partial class MainWindow : Window
             double radius = rand.Next(3, 10) * gridSize; // 30 to 100 pixels radius
             double x = cx + Math.Cos(angle) * radius;
             double y = cy + Math.Sin(angle) * radius;
-            
+
             // Snap to grid
             x = Math.Round(x / gridSize) * gridSize;
             y = Math.Round(y / gridSize) * gridSize;
-            
+
             // Clamp to boundary
             x = Math.Max(boundary.X, Math.Min(boundary.Right, x));
             y = Math.Max(boundary.Y, Math.Min(boundary.Bottom, y));
@@ -974,7 +974,7 @@ public partial class MainWindow : Window
             if (inflated.Count > 0)
                 return inflated[0];
         }
-        
+
         return path;
     }
 }

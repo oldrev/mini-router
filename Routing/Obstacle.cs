@@ -12,7 +12,7 @@ public class Obstacle
     public Obstacle(IEnumerable<Point> vertices)
     {
         Vertices = vertices.ToList();
-        
+
         // Compute bounding box
         double minX = double.MaxValue, minY = double.MaxValue;
         double maxX = double.MinValue, maxY = double.MinValue;
