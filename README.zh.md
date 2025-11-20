@@ -64,7 +64,7 @@
 
 ## 快速开始（在 Windows / PowerShell 下）
 
-前提：已安装 .NET SDK（建议 .NET 10 / 11），并连接 Internet 以还原 NuGet 包。
+前提：已安装 .NET SDK（.NET 10），并连接 Internet 以还原 NuGet 包。
 
 构建并运行：
 

@@ -61,7 +61,7 @@ This project is a learning and experimentation demo; it intentionally does not s
 
 ## Quick start (Windows / PowerShell)
 
-Prerequisites: .NET SDK installed (recommended .NET 10 / 11) and Internet to restore NuGet packages.
+Prerequisites: .NET SDK installed (.NET 10) and Internet to restore NuGet packages.
 
 Build and run:
 
