@@ -17,6 +17,7 @@
             <Slider Name="ClearanceSlider" Minimum="1" Maximum="50" Value="10" TickFrequency="1" IsSnapToTickEnabled="True"/>
 
             <Button Name="PourButton" Content="Pour" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="OnPourClick"/>
+            <Button Name="ResetButton" Content="Reset" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="OnResetClick"/>
         </StackPanel>
     </Grid>
 </Window>

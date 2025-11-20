@@ -14,12 +14,14 @@ namespace MinimalRouter;
 public partial class MainWindow : Window
 {
     private readonly Router _router = new Router();
+    private readonly Random _rand = new Random();
     private Point? _last = null;
     private Ellipse? _startPoint = null;        // overall route start marker (kept at first click)
     private Ellipse? _segmentStartPoint = null; // current segment start marker (moves to each new segment start)
     private Ellipse? _endPoint = null;
     private List<Line> _dynamicLines = new();
     private List<Control> _staticVisuals = new();
+    private List<Control> _obstacleVisuals = new();
     private List<Point> _currentRoutePoints = new();
 
     private Rect _boardBoundary;
@@ -66,60 +68,7 @@ public partial class MainWindow : Window
         };
 
         // Generate Obstacles
-        var rand = new Random();
-        double gridSize = 10;
-        int numObstacles = rand.Next(8, 13); // 8 to 12
-        for (int i = 0; i < numObstacles; i++)
-        {
-            bool valid;
-            List<Point> vertices;
-            Rect bounds;
-            int attempts = 0;
-            do
-            {
-                // Generate random polygon
-                vertices = GenerateRandomPolygon(rand, gridSize, _boardBoundary);
-                
-                // Compute bounds for intersection check
-                double minX = double.MaxValue, minY = double.MaxValue;
-                double maxX = double.MinValue, maxY = double.MinValue;
-                foreach (var p in vertices)
-                {
-                    if (p.X < minX) minX = p.X;
-                    if (p.Y < minY) minY = p.Y;
-                    if (p.X > maxX) maxX = p.X;
-                    if (p.Y > maxY) maxY = p.Y;
-                }
-                bounds = new Rect(minX, minY, maxX - minX, maxY - minY);
-
-                valid = true;
-                foreach (var existing in _router.Obstacles)
-                {
-                    if (bounds.Intersects(existing.Bounds))
-                    {
-                        valid = false;
-                        break;
-                    }
-                }
-                attempts++;
-            } while (!valid && attempts < 100);
-
-            if (valid)
-            {
-                var obstacle = new Obstacle(vertices);
-                _router.AddObstacle(obstacle);
-
-                // Draw Polygon
-                var polygon = new Polygon
-                {
-                    Points = new Avalonia.Collections.AvaloniaList<Point>(vertices),
-                    Stroke = Brushes.Red,
-                    StrokeThickness = 1,
-                    Fill = null
-                };
-                CanvasArea.Children.Add(polygon);
-            }
-        }
+        GenerateObstacles();
         
         /*
 
@@ -188,6 +137,120 @@ public partial class MainWindow : Window
         CanvasArea.PointerPressed += OnClick;
         CanvasArea.PointerMoved += OnPointerMoved;
     }
+
+    private void ResetBoard()
+    {
+        // Remove any existing pours
+        foreach (var v in _pourVisuals)
+            CanvasArea.Children.Remove(v);
+        _pourVisuals.Clear();
+
+        // Remove obstacle visuals
+        foreach (var v in _obstacleVisuals)
+            CanvasArea.Children.Remove(v);
+        _obstacleVisuals.Clear();
+
+        // Clear traces and visuals
+        ClearStaticLines();
+        ClearDynamicLines();
+
+        // Clear markers
+        if (_startPoint != null)
+        {
+            CanvasArea.Children.Remove(_startPoint);
+            _startPoint = null;
+        }
+        if (_segmentStartPoint != null)
+        {
+            CanvasArea.Children.Remove(_segmentStartPoint);
+            _segmentStartPoint = null;
+        }
+        if (_endPoint != null)
+        {
+            CanvasArea.Children.Remove(_endPoint);
+            _endPoint = null;
+        }
+
+        _last = null;
+        _currentRoutePoints = new List<Point>();
+
+        // Reset sliders to defaults
+        WidthSlider.Value = 10;
+        ClearanceSlider.Value = 10;
+        _router.Clearance = ClearanceSlider.Value;
+
+        // Clear obstacles in router
+        _router.ClearObstacles();
+
+        // Generate new obstacles
+        GenerateObstacles();
+    }
+
+    private void OnResetClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        ResetBoard();
+    }
+
+    private void GenerateObstacles()
+    {
+        double gridSize = 10;
+        int numObstacles = _rand.Next(8, 13); // 8 to 12
+        for (int i = 0; i < numObstacles; i++)
+        {
+            bool valid;
+            List<Point> vertices;
+            Rect bounds;
+            int attempts = 0;
+            do
+            {
+                // Generate random polygon
+                vertices = GenerateRandomPolygon(_rand, gridSize, _boardBoundary);
+                
+                // Compute bounds for intersection check
+                double minX = double.MaxValue, minY = double.MaxValue;
+                double maxX = double.MinValue, maxY = double.MinValue;
+                foreach (var p in vertices)
+                {
+                    if (p.X < minX) minX = p.X;
+                    if (p.Y < minY) minY = p.Y;
+                    if (p.X > maxX) maxX = p.X;
+                    if (p.Y > maxY) maxY = p.Y;
+                }
+                bounds = new Rect(minX, minY, maxX - minX, maxY - minY);
+
+                valid = true;
+                foreach (var existing in _router.Obstacles)
+                {
+                    if (bounds.Intersects(existing.Bounds))
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+                attempts++;
+            } while (!valid && attempts < 100);
+
+            if (valid)
+            {
+                var obstacle = new Obstacle(vertices);
+                _router.AddObstacle(obstacle);
+
+                // Draw Polygon
+                var polygon = new Polygon
+                {
+                    Points = new Avalonia.Collections.AvaloniaList<Point>(vertices),
+                    Stroke = Brushes.Red,
+                    StrokeThickness = 1,
+                    Fill = null
+                };
+                CanvasArea.Children.Add(polygon);
+                _obstacleVisuals.Add(polygon);
+            }
+        }
+    }
+
+    // Minimum allowed polygon area (pixels^2) - adjust as needed
+    private const double MinPolygonArea = 800.0; // default: ~28x28 grid
 
     private void OnClick(object? sender, PointerPressedEventArgs e)
     {
@@ -540,7 +603,7 @@ public partial class MainWindow : Window
         {
             // It is an island. Create a Path for it.
             var geometry = new PathGeometry();
-            geometry.Figures ??= new PathFigures();
+            if (geometry.Figures == null) geometry.Figures = new PathFigures();
             geometry.FillRule = Avalonia.Media.FillRule.NonZero;
 
             // Add the island itself
@@ -593,6 +656,7 @@ public partial class MainWindow : Window
         }
         figure.Segments.Add(polyLine);
         
+        if (geometry.Figures == null) geometry.Figures = new PathFigures();
         geometry.Figures.Add(figure);
     }
 
@@ -659,7 +723,239 @@ public partial class MainWindow : Window
         if (vertices.Count < 3)
             return GenerateRandomPolygon(rand, gridSize, boundary); // Retry
 
+        // Attempt to repair self-intersections caused by snapping/clamping
+        vertices = RepairPolygon(vertices);
+
+        // Improve edges toward 45° multiples (axis or diagonal). This tries to adjust
+        // each edge's direction to the nearest 45° while keeping vertices on the grid.
+        vertices = SnapEdgesTo45(vertices, gridSize, boundary);
+
+        // Repair again after snapping and ensure simplicity
+        vertices = RepairPolygon(vertices);
+        if (!IsSimplePolygon(vertices))
+            return GenerateRandomPolygon(rand, gridSize, boundary);
+
+        // Ensure area is not too small
+        var area = Math.Abs(PolygonArea(vertices));
+        if (area < MinPolygonArea)
+            return GenerateRandomPolygon(rand, gridSize, boundary);
+
         return vertices;
+    }
+
+    private double PolygonArea(List<Point> vertices)
+    {
+        double area = 0.0;
+        int n = vertices.Count;
+        for (int i = 0; i < n; i++)
+        {
+            var a = vertices[i];
+            var b = vertices[(i + 1) % n];
+            area += a.X * b.Y - a.Y * b.X;
+        }
+        return area * 0.5;
+    }
+
+    private List<Point> SnapEdgesTo45(List<Point> vertices, double gridSize, Rect boundary, int maxIter = 4)
+    {
+        int n = vertices.Count;
+        if (n < 2) return vertices;
+
+        var pts = new List<Point>(vertices);
+        // Anchor the first vertex to reduce drifting
+        var anchor = pts[0];
+
+        for (int iter = 0; iter < maxIter; iter++)
+        {
+            // Walk through edges, snapping each edge direction to nearest 45° while preserving length
+            for (int i = 0; i < n; i++)
+            {
+                var a = pts[i];
+                var bIdx = (i + 1) % n;
+                var b = pts[bIdx];
+                var dx = b.X - a.X;
+                var dy = b.Y - a.Y;
+                var len = Math.Sqrt(dx * dx + dy * dy);
+                if (len < 1e-6) continue;
+
+                var ang = Math.Atan2(dy, dx);
+                var snappedAng = Math.Round(ang / (Math.PI / 4.0)) * (Math.PI / 4.0);
+
+                var nx = a.X + Math.Cos(snappedAng) * len;
+                var ny = a.Y + Math.Sin(snappedAng) * len;
+
+                // Snap to grid
+                nx = Math.Round(nx / gridSize) * gridSize;
+                ny = Math.Round(ny / gridSize) * gridSize;
+
+                // Clamp to boundary
+                nx = Math.Max(boundary.X, Math.Min(boundary.Right, nx));
+                ny = Math.Max(boundary.Y, Math.Min(boundary.Bottom, ny));
+
+                pts[bIdx] = new Point(nx, ny);
+            }
+
+            // Re-anchor: move the polygon to keep anchor at original (small shifts from rounding)
+            var shiftX = anchor.X - pts[0].X;
+            var shiftY = anchor.Y - pts[0].Y;
+            if (Math.Abs(shiftX) > 1e-6 || Math.Abs(shiftY) > 1e-6)
+            {
+                for (int k = 0; k < n; k++)
+                {
+                    var p = pts[k];
+                    var nx = Math.Round((p.X + shiftX) / gridSize) * gridSize;
+                    var ny = Math.Round((p.Y + shiftY) / gridSize) * gridSize;
+                    nx = Math.Max(boundary.X, Math.Min(boundary.Right, nx));
+                    ny = Math.Max(boundary.Y, Math.Min(boundary.Bottom, ny));
+                    pts[k] = new Point(nx, ny);
+                }
+            }
+        }
+
+        return pts;
+    }
+
+    // Check if polygon is simple (no self intersections)
+    private bool IsSimplePolygon(List<Point> vertices)
+    {
+        int n = vertices.Count;
+        if (n < 3) return false;
+
+        for (int i = 0; i < n; i++)
+        {
+            var a1 = vertices[i];
+            var a2 = vertices[(i + 1) % n];
+
+            for (int j = i + 1; j < n; j++)
+            {
+                // skip adjacent edges and self
+                if (j == i || (j + 1) % n == i || j == (i + 1) % n)
+                    continue;
+
+                var b1 = vertices[j];
+                var b2 = vertices[(j + 1) % n];
+
+                if (SegmentsIntersect(a1, a2, b1, b2))
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    // Try to repair polygon with 2-opt style edge uncrossing (reverse part of vertex sequence)
+    // Returns a polygon with no crossing if possible, or the original if unable to repair
+    private List<Point> RepairPolygon(List<Point> vertices)
+    {
+        var pts = new List<Point>(vertices);
+        int n = pts.Count;
+        if (n < 4) return pts; // triangles cannot self-intersect
+
+        bool changed;
+        int iterations = 0;
+        do
+        {
+            changed = false;
+            iterations++;
+            for (int i = 0; i < n; i++)
+            {
+                var a1 = pts[i];
+                var a2 = pts[(i + 1) % n];
+                for (int j = i + 2; j < n; j++)
+                {
+                    // edges that share a vertex are adjacent: skip
+                    if (j == i || (j + 1) % n == i)
+                        continue;
+
+                    var b1 = pts[j];
+                    var b2 = pts[(j + 1) % n];
+                    if (SegmentsIntersect(a1, a2, b1, b2))
+                    {
+                        // Reverse the vertices between i+1 and j (inclusive) to uncross
+                        int start = (i + 1) % n;
+                        int end = j % n;
+                        if (start < end)
+                        {
+                            pts.Reverse(start, end - start + 1);
+                        }
+                        else
+                        {
+                            // wrap-around reverse: normalize to linear sequence
+                            var segment = new List<Point>();
+                            int idx = start;
+                            while (true)
+                            {
+                                segment.Add(pts[idx]);
+                                if (idx == end) break;
+                                idx = (idx + 1) % n;
+                            }
+                            segment.Reverse();
+                            // write back
+                            idx = start;
+                            int k = 0;
+                            while (true)
+                            {
+                                pts[idx] = segment[k++];
+                                if (idx == end) break;
+                                idx = (idx + 1) % n;
+                            }
+                        }
+                        changed = true;
+                        break; // restart outer loop after change
+                    }
+                }
+                if (changed) break;
+            }
+        } while (changed && iterations < 20);
+
+        return pts;
+    }
+
+    // Segment intersection (proper intersection or non-endpoint crossing)
+    private bool SegmentsIntersect(Point a, Point b, Point c, Point d)
+    {
+        // Exclude intersections at shared endpoints — not considered self-intersection in polygon
+        if ((AlmostEqual(a, c) || AlmostEqual(a, d) || AlmostEqual(b, c) || AlmostEqual(b, d)))
+            return false;
+
+        int o1 = Orientation(a, b, c);
+        int o2 = Orientation(a, b, d);
+        int o3 = Orientation(c, d, a);
+        int o4 = Orientation(c, d, b);
+
+        if (o1 != o2 && o3 != o4) return true;
+
+        // Check special colinear cases (overlap)
+        if (o1 == 0 && OnSegment(a, c, b)) return true;
+        if (o2 == 0 && OnSegment(a, d, b)) return true;
+        if (o3 == 0 && OnSegment(c, a, d)) return true;
+        if (o4 == 0 && OnSegment(c, b, d)) return true;
+
+        return false;
+    }
+
+    private int Orientation(Point p, Point q, Point r)
+    {
+        // cross product (q - p) x (r - q)
+        double val = (q.X - p.X) * (r.Y - q.Y) - (q.Y - p.Y) * (r.X - q.X);
+        if (AlmostEqual(val, 0)) return 0; // colinear
+        return (val > 0) ? 1 : 2; // 1: clockwise, 2: counterclockwise
+    }
+
+    private bool OnSegment(Point p, Point q, Point r)
+    {
+        // check if q lies on pr
+        return q.X <= Math.Max(p.X, r.X) + 1e-6 && q.X + 1e-6 >= Math.Min(p.X, r.X) &&
+               q.Y <= Math.Max(p.Y, r.Y) + 1e-6 && q.Y + 1e-6 >= Math.Min(p.Y, r.Y);
+    }
+
+    private bool AlmostEqual(double a, double b)
+    {
+        return Math.Abs(a - b) < 1e-6;
+    }
+
+    private bool AlmostEqual(Point p1, Point p2)
+    {
+        return AlmostEqual(p1.X, p2.X) && AlmostEqual(p1.Y, p2.Y);
     }
 
     private Path64 MakePathFromPolygon(List<Point> vertices, double expansion)

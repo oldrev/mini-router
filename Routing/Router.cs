@@ -39,6 +39,11 @@ public class Router
         _traces.Clear();
     }
 
+    public void ClearObstacles()
+    {
+        _obstacles.Clear();
+    }
+
     // 判断线段是否与任意障碍物碰撞
     private bool Collides(Segment seg, double currentWidth, HashSet<Trace>? ignoredTraces = null)
     {
