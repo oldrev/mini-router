@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
-using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace MinimalRouter.Routing;
 
@@ -58,7 +58,8 @@ public class Router
         var center = new Point((start.X + end.X) / 2.0, (start.Y + end.Y) / 2.0);
         var searchRect = new Rect(center.X - MaxSearchRange, center.Y - MaxSearchRange, MaxSearchRange * 2, MaxSearchRange * 2);
         // expand a bit for clearance
-        searchRect = searchRect.InflateRect(Clearance + 20);
+        double inflateAmount = Clearance + 20;
+        searchRect = new Rect(searchRect.X - inflateAmount, searchRect.Y - inflateAmount, searchRect.Width + inflateAmount * 2, searchRect.Height + inflateAmount * 2);
 
         // collect unique X and Y coordinates from inflated obstacle edges and start/end
         var xs = new HashSet<double> { start.X, end.X };
@@ -291,16 +292,25 @@ public class Router
 
             closed.Add(current);
 
-            foreach (var neighbor in neighbors[current])
+            // Use batch distance computation for all neighbors to reduce per-neighbor overhead
+            var nbrs = neighbors[current];
+            if (nbrs.Count == 0) continue;
+
+            // Compute distances from current to all neighbors and from neighbors to end in batches
+            var distCurrToNbr = DistanceBatch(current, CollectionsMarshal.AsSpan(nbrs));
+            var distNbrToEnd = DistanceBatch(end, CollectionsMarshal.AsSpan(nbrs));
+
+            for (int ni = 0; ni < nbrs.Count; ni++)
             {
+                var neighbor = nbrs[ni];
                 if (closed.Contains(neighbor)) continue;
 
-                var tentativeG = gScore[current] + Distance(current, neighbor);
+                var tentativeG = gScore[current] + distCurrToNbr[ni];
                 if (tentativeG < gScore[neighbor])
                 {
                     cameFrom[neighbor] = current;
                     gScore[neighbor] = tentativeG;
-                    fScore[neighbor] = tentativeG + Distance(neighbor, end);
+                    fScore[neighbor] = tentativeG + distNbrToEnd[ni];
                     openSet.Enqueue(neighbor, fScore[neighbor]);
                 }
             }
@@ -427,31 +437,63 @@ public class Router
         return new Point(v.X / len, v.Y / len);
     }
 
+    // Vectorized batch distance calculation: computes Euclidean distances from `a` to each point in `pts`.
+    // Accepts ReadOnlySpan<Point> to avoid allocations when possible. Falls back to scalar if vectorization not available or list small.
+    private static double[] DistanceBatch(Point a, ReadOnlySpan<Point> pts)
+    {
+        int n = pts.Length;
+        var res = new double[n];
+        if (n == 0) return res;
+
+        // For small n, scalar is cheaper
+        if (n < 8 || !System.Numerics.Vector.IsHardwareAccelerated)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                var dx = a.X - pts[i].X;
+                var dy = a.Y - pts[i].Y;
+                res[i] = Math.Sqrt(dx * dx + dy * dy);
+            }
+            return res;
+        }
+
+        // Prepare dx/dy arrays
+        var dxs = new double[n];
+        var dys = new double[n];
+        for (int i = 0; i < n; i++)
+        {
+            dxs[i] = a.X - pts[i].X;
+            dys[i] = a.Y - pts[i].Y;
+        }
+
+        int W = System.Numerics.Vector<double>.Count;
+        var sq = new double[n];
+
+        int iIdx = 0;
+        // vectorized bulk
+        for (; iIdx + W <= n; iIdx += W)
+        {
+            var vdx = new System.Numerics.Vector<double>(dxs, iIdx);
+            var vdy = new System.Numerics.Vector<double>(dys, iIdx);
+            var vres = vdx * vdx + vdy * vdy; // per-lane squared distances
+            vres.CopyTo(sq, iIdx);
+        }
+
+        // tail
+        for (int t = iIdx; t < n; t++)
+            sq[t] = dxs[t] * dxs[t] + dys[t] * dys[t];
+
+        // sqrt pass
+        for (int k = 0; k < n; k++)
+            res[k] = Math.Sqrt(sq[k]);
+
+        return res;
+    }
+
     private static double Distance(Point a, Point b)
     {
         var dx = a.X - b.X;
         var dy = a.Y - b.Y;
-
-        // Try a lightweight SIMD path when hardware-accelerated vector is available
-        try
-        {
-            if (System.Numerics.Vector.IsHardwareAccelerated)
-            {
-                int n = Vector<double>.Count;
-                var arr = new double[n];
-                arr[0] = dx; arr[1] = dy;
-                for (int i = 2; i < n; i++) arr[i] = 0.0;
-                var v = new Vector<double>(arr);
-                var sq = v * v;
-                double sum = 0.0;
-                for (int i = 0; i < n; i++) sum += sq[i];
-                return Math.Sqrt(sum);
-            }
-        }
-        catch
-        {
-            // Fall back to scalar if anything unexpected
-        }
 
         return Math.Sqrt(dx * dx + dy * dy);
     }
@@ -516,14 +558,5 @@ public class Router
     public static Point SnapToGrid(Point p)
     {
         return new Point(Math.Round(p.X / 10) * 10, Math.Round(p.Y / 10) * 10);
-    }
-}
-
-// small helper extension to inflate rect (since Avalonia.Rect has no Inflate method here)
-static class RectExtensions
-{
-    public static Rect InflateRect(this Rect r, double amount)
-    {
-        return new Rect(r.X - amount, r.Y - amount, r.Width + amount * 2, r.Height + amount * 2);
     }
 }

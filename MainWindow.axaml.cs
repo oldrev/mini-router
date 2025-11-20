@@ -112,6 +112,7 @@ public partial class MainWindow : Window
 
                     // stop interactive routing
                     _last = null;
+                    _currentRoutePoints = new List<Point>();
                 }
             }
             else
@@ -131,14 +132,9 @@ public partial class MainWindow : Window
                     Canvas.SetTop(_startPoint, p.Y - 5);
                     CanvasArea.Children.Add(_startPoint);
 
-                    // ensure any previous state cleared
+                    // ensure any previous dynamic state cleared but keep committed static lines
                     ClearDynamicLines();
-                    ClearStaticLines();
-                    if (_endPoint != null)
-                    {
-                        CanvasArea.Children.Remove(_endPoint);
-                        _endPoint = null;
-                    }
+                    // do not clear _staticLines so earlier routes persist
                 }
                 else
                 {
@@ -170,6 +166,7 @@ public partial class MainWindow : Window
                 ClearDynamicLines();
                 ClearStaticLines();
                 _last = null;
+                _currentRoutePoints = new List<Point>();
             }
         }
     }
@@ -195,6 +192,9 @@ public partial class MainWindow : Window
 
         // clear dynamic visuals (they will be recreated on next move)
         ClearDynamicLines();
+
+        // reset current route buffer so next commit starts fresh
+        _currentRoutePoints = new List<Point>();
     }
 
     private void ClearDynamicLines()
