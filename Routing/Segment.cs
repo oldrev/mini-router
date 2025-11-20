@@ -4,10 +4,10 @@ using Avalonia.Media;
 
 namespace MinimalRouter.Routing;
 
-public struct Segment
+public readonly struct Segment
 {
-    public Point A;
-    public Point B;
+    public readonly Point A;
+    public readonly Point B;
 
     public Segment(Point a, Point b)
     {
