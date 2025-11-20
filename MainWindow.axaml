@@ -1,13 +1,22 @@
 <Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="clr-namespace:MinimalRouter"
-        x:Class="MinimalRouter.MainWindow"
-        Width="800" Height="600"
-        Title="Minimal Router">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:MinimalRouter" x:Class="MinimalRouter.MainWindow" Width="1000" Height="600" Title="Minimal Router">
 
-    <Grid>
-        <local:GridBackground />
-        <Canvas Name="CanvasArea"
-                Background="Transparent"/>
+    <Grid ColumnDefinitions="*, 200">
+        <local:GridBackground Grid.Column="0" />
+        <Canvas Name="CanvasArea" Grid.Column="0" Background="Transparent"/>
+
+        <!-- Control Panel -->
+        <StackPanel Grid.Column="1" Background="#f0f0f0" Spacing="10" Margin="10">
+            <TextBlock Text="Trace Width" FontWeight="Bold"/>
+            <TextBlock Name="WidthDisplay" Text="10"/>
+            <Slider Name="WidthSlider" Minimum="1" Maximum="20" Value="10" TickFrequency="1" IsSnapToTickEnabled="True"/>
+
+            <TextBlock Text="Clearance" FontWeight="Bold" Margin="0,20,0,0"/>
+            <TextBlock Name="ClearanceDisplay" Text="10"/>
+            <Slider Name="ClearanceSlider" Minimum="1" Maximum="50" Value="10" TickFrequency="1" IsSnapToTickEnabled="True"/>
+
+            <Button Name="PourButton" Content="Pour" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="OnPourClick"/>
+        </StackPanel>
     </Grid>
 </Window>

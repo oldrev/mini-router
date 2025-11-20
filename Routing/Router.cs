@@ -3,320 +3,179 @@ using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
 using System.Runtime.InteropServices;
+using System.Numerics;
 
 namespace MinimalRouter.Routing;
 
 public class Router
 {
     private readonly List<Obstacle> _obstacles = new List<Obstacle>();
-    private const double Clearance = 6; // “间距” inflate
+    private readonly List<Trace> _traces = new List<Trace>();
+    public double Clearance { get; set; } = 10;
 
     // Bias factor <1 to prefer diagonal edges (45°)
-    private const double DiagonalBias = 0.8;
+    private const double DiagonalBias = 1.0; // No bias needed if we use turn penalty
+    private const double TurnPenalty = 10.0; // Penalty for changing direction
     private const double DiagonalTolerance = 2.0; // pixels tolerance for near-45°
 
     // Limit search area around start/end to reduce candidate set and CPU usage
     private const double MaxSearchRange = 300.0; // pixels radius around start/end center
 
     public IReadOnlyList<Obstacle> Obstacles => _obstacles;
+    public IReadOnlyList<Trace> Traces => _traces;
 
     public void AddObstacle(Obstacle o)
     {
         _obstacles.Add(o);
     }
 
+    public void AddTrace(Trace t)
+    {
+        _traces.Add(t);
+    }
+
+    public void ClearTraces()
+    {
+        _traces.Clear();
+    }
+
     // 判断线段是否与任意障碍物碰撞
-    private bool Collides(Segment seg)
+    private bool Collides(Segment seg, double currentWidth, HashSet<Trace>? ignoredTraces = null)
     {
-        // Use inflated rectangle around obstacles for clearance
-        foreach (var o in _obstacles)
-        {
-            var infRect = new Rect(
-                o.Bounds.X - Clearance,
-                o.Bounds.Y - Clearance,
-                o.Bounds.Width + Clearance * 2,
-                o.Bounds.Height + Clearance * 2
-            );
-
-            // Quick reject by bounding box
-            var segBox = seg.BoundingBox(0);
-            if (!segBox.Intersects(infRect))
-                continue;
-
-            if (SegmentIntersectsRect(seg, infRect))
-                return true;
-        }
-        return false;
+        return CollisionDetector.IsColliding(seg, currentWidth, _obstacles, _traces, Clearance, ignoredTraces);
     }
 
-    // 生成可能的拐点（基于障碍物扩展矩形的网格线交点 + 起终点 + 45° 对角交点）
-    private List<Point> CollectCandidatePoints(Point start, Point end)
-    {
-        var pts = new List<Point> { start, end };
-
-        // compute a bounded search rectangle around start/end to limit candidate generation
-        var center = new Point((start.X + end.X) / 2.0, (start.Y + end.Y) / 2.0);
-        var searchRect = new Rect(center.X - MaxSearchRange, center.Y - MaxSearchRange, MaxSearchRange * 2, MaxSearchRange * 2);
-        // expand a bit for clearance
-        double inflateAmount = Clearance + 20;
-        searchRect = new Rect(searchRect.X - inflateAmount, searchRect.Y - inflateAmount, searchRect.Width + inflateAmount * 2, searchRect.Height + inflateAmount * 2);
-
-        // collect unique X and Y coordinates from inflated obstacle edges and start/end
-        var xs = new HashSet<double> { start.X, end.X };
-        var ys = new HashSet<double> { start.Y, end.Y };
-
-        // diagonal constants (x+y and x-y) to create diagonal intersection candidates
-        var diagPlus = new HashSet<double> { start.X + start.Y, end.X + end.Y };
-        var diagMinus = new HashSet<double> { start.X - start.Y, end.X - end.Y };
-
-        foreach (var o in _obstacles)
-        {
-            var infRect = new Rect(
-                o.Bounds.X - Clearance,
-                o.Bounds.Y - Clearance,
-                o.Bounds.Width + Clearance * 2,
-                o.Bounds.Height + Clearance * 2
-            );
-
-            // skip obstacles entirely outside the search rect
-            if (!infRect.Intersects(searchRect))
-                continue;
-
-            // add corners as candidate points (snapped)
-            var corners = new[] {
-                new Point(infRect.X, infRect.Y),
-                new Point(infRect.X + infRect.Width, infRect.Y),
-                new Point(infRect.X, infRect.Y + infRect.Height),
-                new Point(infRect.X + infRect.Width, infRect.Y + infRect.Height)
-            };
-
-            foreach (var c in corners)
-            {
-                var sc = SnapToGrid(c);
-                if (searchRect.Contains(sc))
-                {
-                    pts.Add(sc);
-                    diagPlus.Add(c.X + c.Y);
-                    diagMinus.Add(c.X - c.Y);
-                }
-            }
-
-            if (searchRect.Contains(new Point(infRect.X, infRect.Y))) xs.Add(infRect.X);
-            if (searchRect.Contains(new Point(infRect.X + infRect.Width, infRect.Y + infRect.Height))) xs.Add(infRect.X + infRect.Width);
-            if (searchRect.Contains(new Point(infRect.X, infRect.Y))) ys.Add(infRect.Y);
-            if (searchRect.Contains(new Point(infRect.X + infRect.Width, infRect.Y + infRect.Height))) ys.Add(infRect.Y + infRect.Height);
-        }
-
-        // Form grid intersections from those Xs and Ys (filter by searchRect)
-        foreach (var x in xs)
-        foreach (var y in ys)
-        {
-            var p = SnapToGrid(new Point(x, y));
-            if (searchRect.Contains(p) && !IsInsideAnyObstacle(p)) pts.Add(p);
-        }
-
-        // Add diagonal intersections for x+y = const and x-y = const, but only within searchRect
-        foreach (var d in diagPlus)
-        {
-            foreach (var x in xs)
-            {
-                var y = d - x;
-                var p = SnapToGrid(new Point(x, y));
-                if (searchRect.Contains(p) && !IsInsideAnyObstacle(p)) pts.Add(p);
-            }
-            foreach (var y in ys)
-            {
-                var x = d - y;
-                var p = SnapToGrid(new Point(x, y));
-                if (searchRect.Contains(p) && !IsInsideAnyObstacle(p)) pts.Add(p);
-            }
-        }
-
-        foreach (var d in diagMinus)
-        {
-            foreach (var x in xs)
-            {
-                var y = x - d;
-                var p = SnapToGrid(new Point(x, y));
-                if (searchRect.Contains(p) && !IsInsideAnyObstacle(p)) pts.Add(p);
-            }
-            foreach (var y in ys)
-            {
-                var x = d + y;
-                var p = SnapToGrid(new Point(x, y));
-                if (searchRect.Contains(p) && !IsInsideAnyObstacle(p)) pts.Add(p);
-            }
-        }
-
-        return pts.Distinct().ToList();
-    }
-
-    private bool IsInsideAnyObstacle(Point p)
-    {
-        foreach (var o in _obstacles)
-        {
-            var inf = new Rect(
-                o.Bounds.X - Clearance,
-                o.Bounds.Y - Clearance,
-                o.Bounds.Width + Clearance * 2,
-                o.Bounds.Height + Clearance * 2
-            );
-            if (inf.Contains(p)) return true;
-        }
-        return false;
-    }
-
-    // 判断两个点是否有直接视线（可走直线）
-    private bool HasLineOfSight(Point a, Point b)
-    {
-        var seg = new Segment(a, b);
-        if (Collides(seg))
-            return false;
-
-        double dx = b.X - a.X;
-        double dy = b.Y - a.Y;
-        const double eps = 1e-6;
-
-        // allow horizontal or vertical
-        if (Math.Abs(dx) < eps || Math.Abs(dy) < eps)
-            return true;
-
-        // allow near-45-degree diagonals within tolerance
-        if (Math.Abs(Math.Abs(dx) - Math.Abs(dy)) <= DiagonalTolerance)
-            return true;
-
-        return false;
-    }
-
-    // Weighted distance: prefer diagonal moves by applying DiagonalBias
-    private static double WeightedDistance(Point a, Point b)
-    {
-        var dx = Math.Abs(a.X - b.X);
-        var dy = Math.Abs(a.Y - b.Y);
-        var dist = Math.Sqrt(dx * dx + dy * dy);
-        // consider diagonal if nearly equal
-        if (Math.Abs(dx - dy) <= DiagonalTolerance)
-            return dist * DiagonalBias;
-        return dist;
-    }
-
-    // Heuristic for A*: Euclidean distance (admissible) multiplied by DiagonalBias to encourage diagonals slightly
+    // Heuristic for A*: Euclidean distance (admissible)
     private static double Heuristic(Point a, Point b)
     {
-        var d = Distance(a, b);
-        // small bias to prefer solutions with diagonals
-        return d * DiagonalBias;
+        return Distance(a, b);
     }
 
-    public List<Point> Route(Point start, Point end)
+    public List<Point> Route(Point start, Point end, double currentWidth)
     {
         start = SnapToGrid(start);
         end = SnapToGrid(end);
 
-        var pts = CollectCandidatePoints(start, end);
-
-        // Build adjacency list for visibility graph
-        var neighbors = new Dictionary<Point, List<Point>>();
-        foreach (var p in pts)
-            neighbors[p] = new List<Point>();
-
-        for (int i = 0; i < pts.Count; i++)
-        for (int j = i + 1; j < pts.Count; j++)
+        // Identify traces connected to start
+        var connectedTraces = new HashSet<Trace>();
+        foreach (var t in _traces)
         {
-            var p1 = pts[i];
-            var p2 = pts[j];
-            if (p1 == p2) continue;
-            if (HasLineOfSight(p1, p2))
+            foreach (var s in t.Segments)
             {
-                neighbors[p1].Add(p2);
-                neighbors[p2].Add(p1);
+                // Check if start is one of the endpoints
+                if (ApproximatelyEqual(s.A, start) || ApproximatelyEqual(s.B, start))
+                {
+                    connectedTraces.Add(t);
+                    break;
+                }
+                // Also check if start is ON the segment (T-junction start)
+                if (CollisionDetector.DistancePointSegment(start, s.A, s.B) < 1.0) // Tolerance
+                {
+                     connectedTraces.Add(t);
+                     break;
+                }
             }
         }
 
-        // A* search on points
+        // If start is inside obstacle, we might be stuck, but let's try to route anyway
+        // or return empty if strictly invalid. For now, proceed.
+
+        var openSet = new PriorityQueue<Point, double>();
         var cameFrom = new Dictionary<Point, Point>();
         var gScore = new Dictionary<Point, double>();
-        var fScore = new Dictionary<Point, double>();
-        var openSet = new PriorityQueue<Point, double>();
-
-        foreach (var p in pts)
-        {
-            gScore[p] = double.PositiveInfinity;
-            fScore[p] = double.PositiveInfinity;
-        }
 
         gScore[start] = 0;
-        fScore[start] = Heuristic(start, end);
-        openSet.Enqueue(start, fScore[start]);
+        openSet.Enqueue(start, Heuristic(start, end));
 
-        var closed = new HashSet<Point>();
+        // To prevent exploring too far
+        var searchRect = new Rect(
+            Math.Min(start.X, end.X) - MaxSearchRange,
+            Math.Min(start.Y, end.Y) - MaxSearchRange,
+            Math.Abs(start.X - end.X) + MaxSearchRange * 2,
+            Math.Abs(start.Y - end.Y) + MaxSearchRange * 2
+        );
 
-        // guard against pathological infinite loops: limit iterations
-        int maxSteps = Math.Max(10000, pts.Count * 500);
         int steps = 0;
+        int maxSteps = 20000; // Safety break
 
         while (openSet.Count > 0)
         {
-            if (++steps > maxSteps)
-            {
-                // abort search to avoid UI freeze
-                return new List<Point>();
-            }
+            if (steps++ > maxSteps) break;
 
             var current = openSet.Dequeue();
             if (ApproximatelyEqual(current, end))
             {
-                // Reconstruct path (cycle-safe)
-                var path = new List<Point> { current };
-                var visited = new HashSet<Point> { current };
-                while (cameFrom.ContainsKey(path.Last()))
-                {
-                    var next = cameFrom[path.Last()];
-                    // detect cycle
-                    if (visited.Contains(next))
-                    {
-                        // cycle detected; abort
-                        return new List<Point>();
-                    }
-                    path.Add(next);
-                    visited.Add(next);
-                }
-                path.Reverse();
-                // Ensure end is the exact provided end point
-                if (!ApproximatelyEqual(path.Last(), end))
-                    path.Add(end);
-
-                var simplified = Simplify(path);
-                return ApplyChamfers(simplified);
+                var path = ReconstructPath(cameFrom, current);
+                // Ensure end is exact
+                if (!ApproximatelyEqual(path.Last(), end)) path.Add(end);
+                return Simplify(path);
             }
 
-            closed.Add(current);
-
-            // Use batch distance computation for all neighbors to reduce per-neighbor overhead
-            var nbrs = neighbors[current];
-            if (nbrs.Count == 0) continue;
-
-            // Compute distances from current to all neighbors and from neighbors to end in batches
-            var distCurrToNbr = DistanceBatch(current, CollectionsMarshal.AsSpan(nbrs));
-            var distNbrToEnd = DistanceBatch(end, CollectionsMarshal.AsSpan(nbrs));
-
-            for (int ni = 0; ni < nbrs.Count; ni++)
+            foreach (var neighbor in GetGridNeighbors(current))
             {
-                var neighbor = nbrs[ni];
-                if (closed.Contains(neighbor)) continue;
+                if (!searchRect.Contains(neighbor)) continue;
 
-                var tentativeG = gScore[current] + distCurrToNbr[ni];
-                if (tentativeG < gScore[neighbor])
+                // Collision check for the EDGE
+                var seg = new Segment(current, neighbor);
+                if (Collides(seg, currentWidth, connectedTraces)) continue;
+
+                double dist = Distance(current, neighbor);
+                
+                // Calculate turn penalty
+                double penalty = 0;
+                if (cameFrom.TryGetValue(current, out var prev))
+                {
+                    var prevDir = new Point(current.X - prev.X, current.Y - prev.Y);
+                    var newDir = new Point(neighbor.X - current.X, neighbor.Y - current.Y);
+                    
+                    // Cross product to check for direction change
+                    double cross = prevDir.X * newDir.Y - prevDir.Y * newDir.X;
+                    if (Math.Abs(cross) > 1e-9)
+                    {
+                        penalty = TurnPenalty;
+                    }
+                }
+
+                double tentativeG = gScore[current] + dist + penalty;
+
+                if (!gScore.ContainsKey(neighbor) || tentativeG < gScore[neighbor])
                 {
                     cameFrom[neighbor] = current;
                     gScore[neighbor] = tentativeG;
-                    fScore[neighbor] = tentativeG + distNbrToEnd[ni];
-                    openSet.Enqueue(neighbor, fScore[neighbor]);
+                    double h = Heuristic(neighbor, end);
+                    openSet.Enqueue(neighbor, tentativeG + h);
                 }
             }
         }
 
         return new List<Point>();
+    }
+
+    private List<Point> ReconstructPath(Dictionary<Point, Point> cameFrom, Point current)
+    {
+        var path = new List<Point> { current };
+        while (cameFrom.ContainsKey(current))
+        {
+            current = cameFrom[current];
+            path.Add(current);
+        }
+        path.Reverse();
+        return path;
+    }
+
+    private IEnumerable<Point> GetGridNeighbors(Point p)
+    {
+        double step = 10;
+        // 8 directions
+        yield return new Point(p.X + step, p.Y);
+        yield return new Point(p.X - step, p.Y);
+        yield return new Point(p.X, p.Y + step);
+        yield return new Point(p.X, p.Y - step);
+        
+        yield return new Point(p.X + step, p.Y + step);
+        yield return new Point(p.X + step, p.Y - step);
+        yield return new Point(p.X - step, p.Y + step);
+        yield return new Point(p.X - step, p.Y - step);
     }
 
     // 去掉 colinear 点
@@ -345,7 +204,7 @@ public class Router
     }
 
     // Replace 90-degree corners with 45-degree chamfers (produces 135° turns)
-    private List<Point> ApplyChamfers(List<Point> path)
+    private List<Point> ApplyChamfers(List<Point> path, double currentWidth)
     {
         if (path.Count < 3) return path;
 
@@ -404,7 +263,7 @@ public class Router
             var s2 = new Segment(p1, p2);
             var s3 = new Segment(p2, next);
 
-            if (Collides(s1) || Collides(s2) || Collides(s3))
+            if (Collides(s1, currentWidth) || Collides(s2, currentWidth) || Collides(s3, currentWidth))
             {
                 // cannot apply chamfer safely
                 result.Add(cur);
@@ -439,11 +298,11 @@ public class Router
 
     // Vectorized batch distance calculation: computes Euclidean distances from `a` to each point in `pts`.
     // Accepts ReadOnlySpan<Point> to avoid allocations when possible. Falls back to scalar if vectorization not available or list small.
-    private static double[] DistanceBatch(Point a, ReadOnlySpan<Point> pts)
+    private static void DistanceBatch(Point a, ReadOnlySpan<Point> pts, Span<double> outDist)
     {
         int n = pts.Length;
-        var res = new double[n];
-        if (n == 0) return res;
+        if (outDist.Length < n) throw new ArgumentException("outDist length must be >= pts length", nameof(outDist));
+        if (n == 0) return;
 
         // For small n, scalar is cheaper
         if (n < 8 || !System.Numerics.Vector.IsHardwareAccelerated)
@@ -452,9 +311,9 @@ public class Router
             {
                 var dx = a.X - pts[i].X;
                 var dy = a.Y - pts[i].Y;
-                res[i] = Math.Sqrt(dx * dx + dy * dy);
+                outDist[i] = Math.Sqrt(dx * dx + dy * dy);
             }
-            return res;
+            return;
         }
 
         // Prepare dx/dy arrays
@@ -483,11 +342,9 @@ public class Router
         for (int t = iIdx; t < n; t++)
             sq[t] = dxs[t] * dxs[t] + dys[t] * dys[t];
 
-        // sqrt pass
+        // sqrt pass into outDist
         for (int k = 0; k < n; k++)
-            res[k] = Math.Sqrt(sq[k]);
-
-        return res;
+            outDist[k] = Math.Sqrt(sq[k]);
     }
 
     private static double Distance(Point a, Point b)
@@ -501,58 +358,6 @@ public class Router
     private static bool ApproximatelyEqual(Point a, Point b, double eps = 1e-6)
     {
         return Math.Abs(a.X - b.X) < eps && Math.Abs(a.Y - b.Y) < eps;
-    }
-
-    // Segment-rectangle intersection tests
-    private static bool SegmentIntersectsRect(Segment s, Rect r)
-    {
-        // If either endpoint inside rect -> intersects
-        if (r.Contains(s.A) || r.Contains(s.B))
-            return true;
-
-        var topLeft = new Point(r.X, r.Y);
-        var topRight = new Point(r.X + r.Width, r.Y);
-        var bottomLeft = new Point(r.X, r.Y + r.Height);
-        var bottomRight = new Point(r.X + r.Width, r.Y + r.Height);
-
-        // rectangle edges
-        if (SegmentsIntersect(s.A, s.B, topLeft, topRight)) return true;
-        if (SegmentsIntersect(s.A, s.B, topRight, bottomRight)) return true;
-        if (SegmentsIntersect(s.A, s.B, bottomRight, bottomLeft)) return true;
-        if (SegmentsIntersect(s.A, s.B, bottomLeft, topLeft)) return true;
-
-        return false;
-    }
-
-    private static bool SegmentsIntersect(Point p1, Point p2, Point p3, Point p4)
-    {
-        // Check general segment intersection using orientations
-        double d1 = Direction(p3, p4, p1);
-        double d2 = Direction(p3, p4, p2);
-        double d3 = Direction(p1, p2, p3);
-        double d4 = Direction(p1, p2, p4);
-
-        if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
-            ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0)))
-            return true;
-
-        if (Math.Abs(d1) < 1e-9 && OnSegment(p3, p4, p1)) return true;
-        if (Math.Abs(d2) < 1e-9 && OnSegment(p3, p4, p2)) return true;
-        if (Math.Abs(d3) < 1e-9 && OnSegment(p1, p2, p3)) return true;
-        if (Math.Abs(d4) < 1e-9 && OnSegment(p1, p2, p4)) return true;
-
-        return false;
-    }
-
-    private static double Direction(Point a, Point b, Point c)
-    {
-        return (c.X - a.X) * (b.Y - a.Y) - (c.Y - a.Y) * (b.X - a.X);
-    }
-
-    private static bool OnSegment(Point a, Point b, Point p)
-    {
-        return Math.Min(a.X, b.X) <= p.X && p.X <= Math.Max(a.X, b.X) &&
-               Math.Min(a.Y, b.Y) <= p.Y && p.Y <= Math.Max(a.Y, b.Y);
     }
 
     public static Point SnapToGrid(Point p)

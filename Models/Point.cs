@@ -1,12 +1,17 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Numerics;
-using System.Runtime.Intrinsics;
 
 namespace MinimalRouter.Models;
 
-readonly struct Point
+public readonly struct Point
 {
-    readonly Vector128<double> vec;
+    public double X { get; }
+    public double Y { get; }
+
+    public Point(double x, double y)
+    {
+        X = x;
+        Y = y;
+    }
+
+    public override string ToString() => $"({X},{Y})";
 }
