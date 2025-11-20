@@ -48,11 +48,17 @@ public class Router
 
         foreach (var o in _obstacles)
         {
-            // Use corners of obstacle bounds
-            pts.Add(new Point(o.Bounds.X, o.Bounds.Y)); // TopLeft
-            pts.Add(new Point(o.Bounds.X + o.Bounds.Width, o.Bounds.Y)); // TopRight
-            pts.Add(new Point(o.Bounds.X, o.Bounds.Y + o.Bounds.Height)); // BottomLeft
-            pts.Add(new Point(o.Bounds.X + o.Bounds.Width, o.Bounds.Y + o.Bounds.Height)); // BottomRight
+            // Use corners of inflated obstacle bounds
+            var infRect = new Rect(
+                o.Bounds.X - Clearance,
+                o.Bounds.Y - Clearance,
+                o.Bounds.Width + Clearance * 2,
+                o.Bounds.Height + Clearance * 2
+            );
+            pts.Add(new Point(infRect.X, infRect.Y)); // TopLeft
+            pts.Add(new Point(infRect.X + infRect.Width, infRect.Y)); // TopRight
+            pts.Add(new Point(infRect.X, infRect.Y + infRect.Height)); // BottomLeft
+            pts.Add(new Point(infRect.X + infRect.Width, infRect.Y + infRect.Height)); // BottomRight
         }
 
         return pts;
