@@ -26,7 +26,6 @@ public partial class MainWindow : Window
 
     private Rect _boardBoundary;
     private List<Control> _pourVisuals = new();
-    private const double Scale = 1000.0;
 
     public MainWindow()
     {
@@ -545,12 +544,12 @@ public partial class MainWindow : Window
         double clearance = ClearanceSlider.Value;
 
         // 1. Prepare Subject (Board Boundary)
-        var subject = new Paths64();
+        var subject = new PathsD();
         var boundaryPath = MakePathFromRect(_boardBoundary, 0);
         subject.Add(boundaryPath);
 
         // 2. Prepare Clip (Obstacles + Traces)
-        var clip = new Paths64();
+        var clip = new PathsD();
 
         // Obstacles
         foreach (var obs in _router.Obstacles)
@@ -563,40 +562,40 @@ public partial class MainWindow : Window
         // Traces
         foreach (var trace in _router.Traces)
         {
-            var path = new Path64();
+            var path = new PathD();
             if (trace.Segments.Count > 0)
             {
-                path.Add(ToPoint64(trace.Segments[0].A));
+                path.Add(ToPointD(trace.Segments[0].A));
                 foreach (var seg in trace.Segments)
                 {
-                    path.Add(ToPoint64(seg.B));
+                    path.Add(ToPointD(seg.B));
                 }
             }
 
             // Inflate
             // Delta = (Width/2 + Clearance)
-            double delta = (trace.Width / 2.0 + clearance) * Scale;
-            var inflated = Clipper.InflatePaths(new Paths64 { path }, delta, JoinType.Round, EndType.Round);
+            double delta = (trace.Width / 2.0 + clearance);
+            var inflated = Clipper.InflatePaths(new PathsD { path }, delta, JoinType.Round, EndType.Round);
             clip.AddRange(inflated);
         }
 
         // 3. Execute Difference using PolyTree
-        var clipper = new Clipper64();
+        var clipper = new ClipperD();
         clipper.AddSubject(subject);
         clipper.AddClip(clip);
-        var solutionTree = new PolyTree64();
+        var solutionTree = new PolyTreeD();
         clipper.Execute(ClipType.Difference, Clipper2Lib.FillRule.NonZero, solutionTree);
 
         // 4. Render
         RenderSolution(solutionTree);
     }
 
-    private void RenderSolution(PolyPath64 pp)
+    private void RenderSolution(PolyPathD pp)
     {
         // If pp is an outer polygon (not a hole, and not the root), render it
         // The root is technically a "hole" (container)
 
-        bool isRoot = pp is PolyTree64;
+        bool isRoot = pp is PolyTreeD;
         bool isHole = pp.IsHole;
 
         if (!isRoot && !isHole && pp.Polygon != null)
@@ -637,7 +636,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AddPathToGeometry(PathGeometry geometry, Path64? path)
+    private void AddPathToGeometry(PathGeometry geometry, PathD? path)
     {
         if (path == null || path.Count == 0) return;
 
@@ -660,27 +659,27 @@ public partial class MainWindow : Window
         geometry.Figures.Add(figure);
     }
 
-    private Path64 MakePathFromRect(Rect r, double expansion)
+    private PathD MakePathFromRect(Rect r, double expansion)
     {
-        var p = new Path64();
+        var p = new PathD();
         double extra = expansion;
         // Rect: x, y, w, h
         // TL, TR, BR, BL
-        p.Add(ToPoint64(new Point(r.X - extra, r.Y - extra)));
-        p.Add(ToPoint64(new Point(r.Right + extra, r.Y - extra)));
-        p.Add(ToPoint64(new Point(r.Right + extra, r.Bottom + extra)));
-        p.Add(ToPoint64(new Point(r.X - extra, r.Bottom + extra)));
+        p.Add(ToPointD(new Point(r.X - extra, r.Y - extra)));
+        p.Add(ToPointD(new Point(r.Right + extra, r.Y - extra)));
+        p.Add(ToPointD(new Point(r.Right + extra, r.Bottom + extra)));
+        p.Add(ToPointD(new Point(r.X - extra, r.Bottom + extra)));
         return p;
     }
 
-    private Point64 ToPoint64(Point p)
+    private PointD ToPointD(Point p)
     {
-        return new Point64(p.X * Scale, p.Y * Scale);
+        return new PointD(p.X, p.Y);
     }
 
-    private Point ToPointD(Point64 p)
+    private Point ToPointD(PointD p)
     {
-        return new Point(p.X / Scale, p.Y / Scale);
+        return new Point(p.x, p.y);
     }
 
     private List<Point> GenerateRandomPolygon(Random rand, double gridSize, Rect boundary)
@@ -958,19 +957,19 @@ public partial class MainWindow : Window
         return AlmostEqual(p1.X, p2.X) && AlmostEqual(p1.Y, p2.Y);
     }
 
-    private Path64 MakePathFromPolygon(List<Point> vertices, double expansion)
+    private PathD MakePathFromPolygon(List<Point> vertices, double expansion)
     {
-        var path = new Path64();
+        var path = new PathD();
         foreach (var v in vertices)
         {
-            path.Add(ToPoint64(v));
+            path.Add(ToPointD(v));
         }
 
         if (expansion > 0)
         {
-            var paths = new Paths64();
+            var paths = new PathsD();
             paths.Add(path);
-            var inflated = Clipper.InflatePaths(paths, expansion * Scale, JoinType.Miter, EndType.Polygon);
+            var inflated = Clipper.InflatePaths(paths, expansion, JoinType.Miter, EndType.Polygon);
             if (inflated.Count > 0)
                 return inflated[0];
         }
