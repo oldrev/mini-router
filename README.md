@@ -91,7 +91,3 @@ This code is provided as a demo for educational/video purposes.
 Public Domain (no restrictions).
 
 Author: Li Wei (email: oldrev@gmail.com)
-
----
-
-If you want refinements in the English text, more technical detail (examples, diagrams, or code snippets), or a shorter README tailored for a README badge and GitHub page, tell me what tone or sections to prioritize.
