@@ -4,13 +4,26 @@ using System.Linq;
 using Avalonia;
 using System.Runtime.InteropServices;
 using System.Numerics;
+using RTree;
+using Point = Avalonia.Point;
 
 namespace MinimalRouter.Routing;
 
 public class Router
 {
+    // Wrapper to allow adding the same Trace multiple times (for different segments) to the RTree
+    private class TraceEntry
+    {
+        public Trace Trace { get; }
+        public TraceEntry(Trace t) { Trace = t; }
+    }
+
     private readonly List<Obstacle> _obstacles = new List<Obstacle>();
+    private RTree<Obstacle> _obstacleTree = new RTree<Obstacle>();
+
     private readonly List<Trace> _traces = new List<Trace>();
+    private RTree<TraceEntry> _traceTree = new RTree<TraceEntry>();
+
     public double Clearance { get; set; } = 10;
 
     // Bias factor <1 to prefer diagonal edges (45°)
@@ -27,27 +40,48 @@ public class Router
     public void AddObstacle(Obstacle o)
     {
         _obstacles.Add(o);
+        _obstacleTree.Add(ToRTreeRect(o.Bounds), o);
     }
 
     public void AddTrace(Trace t)
     {
         _traces.Add(t);
+        foreach (var seg in t.Segments)
+        {
+             var bounds = seg.BoundingBox(t.Width / 2.0);
+             _traceTree.Add(ToRTreeRect(bounds), new TraceEntry(t));
+        }
     }
 
     public void ClearTraces()
     {
         _traces.Clear();
+        _traceTree = new RTree<TraceEntry>();
     }
 
     public void ClearObstacles()
     {
         _obstacles.Clear();
+        _obstacleTree = new RTree<Obstacle>();
     }
 
     // 判断线段是否与任意障碍物碰撞
     private bool Collides(Segment seg, double currentWidth, HashSet<Trace>? ignoredTraces = null)
     {
-        return CollisionDetector.IsColliding(seg, currentWidth, _obstacles, _traces, Clearance, ignoredTraces);
+        double safePadding = Clearance + currentWidth + 100.0; 
+        var bounds = seg.BoundingBox(safePadding);
+        var queryRect = ToRTreeRect(bounds);
+        
+        var candidateObstacles = _obstacleTree.Intersects(queryRect);
+        var candidateTraces = _traceTree.Intersects(queryRect).Select(e => e.Trace).Distinct();
+        
+        return CollisionDetector.IsColliding(seg, currentWidth, candidateObstacles, candidateTraces, Clearance, ignoredTraces);
+    }
+
+    private static Rectangle ToRTreeRect(Rect r)
+    {
+        // RTree is 3D, so we set Z to 0
+        return new Rectangle((float)r.X, (float)r.Y, 0f, (float)(r.X + r.Width), (float)(r.Y + r.Height), 0f);
     }
 
     // Heuristic for A*: Euclidean distance (admissible)
@@ -63,7 +97,11 @@ public class Router
 
         // Identify traces connected to start
         var connectedTraces = new HashSet<Trace>();
-        foreach (var t in _traces)
+        // Optimization: Query RTree for traces near start point
+        var startRect = new Rect(start.X - 1, start.Y - 1, 2, 2);
+        var nearbyTraces = _traceTree.Intersects(ToRTreeRect(startRect)).Select(e => e.Trace);
+
+        foreach (var t in nearbyTraces)
         {
             foreach (var s in t.Segments)
             {
